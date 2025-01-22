@@ -24,7 +24,8 @@ prompt = (
 # open_API_KEY_path =
 # 명재
 open_API_KEY_path = 'D:/Key/openAI_key.txt'
-
+# 상대경로 
+#open_API_KEY_path = 'D:/Key/openAI_key.txt'
 
 ######################## hwp5txt path ########################
 # 진석
