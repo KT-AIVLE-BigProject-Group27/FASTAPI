@@ -33,7 +33,7 @@ open_API_KEY_path = 'D:/Key/openAI_key.txt'
 # 계승
 # hwp5txt_exe_path = "C:/Users/LeeGyeSeung/Desktop/KT_AIVLE/빅프로젝트폴더/KT_AIVLE_Big_Project/Data_Analysis/Contract/hwp5txt.exe"
 # 명재
-hwp5txt_exe_path = 'C:/Users/User/anaconda3/envs/bigp/Scripts/hwp5txt.exe'
+hwp5txt_exe_path = 'hwp5txt.exe'
 ################################################################################################
 # Hwp파일에서 Text 추출 후 txt 파일로 변환
 ################################################################################################
