@@ -1,6 +1,7 @@
 ################################################################################################
 # 필요 패키지 import
 ################################################################################################
+import os
 import subprocess, pickle, openai, torch, json, os, re, nltk, numpy as np, torch.nn as nn
 from transformers import BertTokenizer, BertModel, BertForSequenceClassification, AutoTokenizer, AutoModelForSeq2SeqLM
 from sklearn.metrics.pairwise import cosine_similarity
@@ -33,7 +34,7 @@ open_API_KEY_path = 'D:/Key/openAI_key.txt'
 # 계승
 # hwp5txt_exe_path = "C:/Users/LeeGyeSeung/Desktop/KT_AIVLE/빅프로젝트폴더/KT_AIVLE_Big_Project/Data_Analysis/Contract/hwp5txt.exe"
 # 명재
-hwp5txt_exe_path = 'hwp5txt.exe'
+hwp5txt_exe_path = 'hwp5txt'
 ################################################################################################
 # Hwp파일에서 Text 추출 후 txt 파일로 변환
 ################################################################################################
@@ -180,8 +181,8 @@ def initialize_models():
     bert_model = BertModel.from_pretrained("klue/bert-base").to(device)
     nltk.data.path.append(f'./nltk_data')
 
-    summary_model_ver2 = BartForConditionalGeneration.from_pretrained('D:/Model/article_summary_ver2/')
-    summary_tokenizer_ver2 = PreTrainedTokenizerFast.from_pretrained('D:/Model/article_summary_ver2/')
+    summary_model_ver2 = BartForConditionalGeneration.from_pretrained('./model/article_summary_ver2/')
+    summary_tokenizer_ver2 = PreTrainedTokenizerFast.from_pretrained('./model/article_summary_ver2/')
 
     class BertMLPClassifier(nn.Module):
         def __init__(self, bert_model_name="klue/bert-base", hidden_size=256):

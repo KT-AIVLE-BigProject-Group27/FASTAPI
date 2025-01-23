@@ -3,7 +3,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 import os ,sys
 import shutil
 import uuid
-import modularization_v1 as mo
+import modularization_v3 as mo
 app = FastAPI()
 
 # 임시 폴더 경로
@@ -32,7 +32,7 @@ async def upload_file(file: UploadFile = File(...)):
         print("파일이 저장되었습니다.")
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    hwp5txt_exe = os.path.join(current_dir,'Data_Analysis', 'Contract', 'hwp5txt.exe')
+    hwp5txt_exe ="./hwp5txt.exe"
     #converted_file = hwp5txt_to_string(hwp5txt_exe, file_path)
 
     mo.initialize_models()
@@ -40,7 +40,7 @@ async def upload_file(file: UploadFile = File(...)):
     # 임시 저장된 파일 삭제
     os.remove(file_path)
 
-    return {"filename": indentification_results, "content": summary_results}
+    return {"indentification_results": indentification_results, "summary_results": summary_results}
 
 
 
