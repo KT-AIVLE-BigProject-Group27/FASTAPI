@@ -3,7 +3,7 @@ import sys
 import time
 
 # import modularization_v1 as mo
-import modularization_v2 as mo
+import modularization_v1 as mo
 
 # 계약서 이름 설정
 contract_path ='D:/KT_AIVLE_Big_Project/Data_Analysis/Contract/example.hwp'

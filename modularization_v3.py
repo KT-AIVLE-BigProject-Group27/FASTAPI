@@ -1,9 +1,22 @@
 ################################################################################################
 # 필요 패키지 import
 ################################################################################################
+import os
 import subprocess, pickle, openai, torch, json, os, re, nltk, numpy as np, torch.nn as nn
 from transformers import BertTokenizer, BertModel, BertForSequenceClassification, AutoTokenizer, AutoModelForSeq2SeqLM
 from sklearn.metrics.pairwise import cosine_similarity
+
+from transformers import BartForConditionalGeneration, PreTrainedTokenizerFast
+
+prompt = (
+    "다음은 계약서의 조항입니다. 이 조항의 주요 내용을 다음 기준에 따라 간략히 요약하세요:\n"
+    "1. 이 조항이 규정하는 주요 목적 또는 대상\n"
+    "2. 갑과 을의 권리와 의무\n"
+    "3. 이행해야 할 절차와 조건\n"
+    "4. 위반 시 결과 또는 조치\n\n"
+    "요약은 각 기준에 따라 간결하고 명확하게 작성하며, 중복을 피하세요. "
+    "조 제목과 관련된 핵심 정보를 반드시 포함하세요.\n\n"
+)
 
 ######################## open API KEY path(도커 배포 시 삭제) ########################
 #진석
@@ -12,16 +25,14 @@ from sklearn.metrics.pairwise import cosine_similarity
 # open_API_KEY_path =
 # 명재
 open_API_KEY_path = 'D:/Key/openAI_key.txt'
+# 상대경로 
+#open_API_KEY_path = 'D:/Key/openAI_key.txt'
 
 ######################## hwp5txt path ########################
-# 진석
-# hwp5txt_exe_path =
-# 계승
-# hwp5txt_exe_path = "C:/Users/LeeGyeSeung/Desktop/KT_AIVLE/빅프로젝트폴더/KT_AIVLE_Big_Project/Data_Analysis/Contract/hwp5txt.exe"
-# 명재
-#hwp5txt_exe_path = 'C:/Users/User/anaconda3/envs/bigp/Scripts/hwp5txt.exe'
-# 상대경로 
-hwp5txt_exe_path = 'hwp5txt.exe'
+# 배포시 경로로
+hwp5txt_exe_path = "/usr/local/bin/hwp5txt"
+# local 경로 
+#hwp5txt_exe_path = 'hwp5txt'
 ################################################################################################
 # Hwp파일에서 Text 추출 후 txt 파일로 변환
 ################################################################################################
@@ -42,11 +53,13 @@ def hwp5txt_to_txt(hwp_path, output_dir=None):
     print(f"텍스트 파일로 저장 완료: {txt_file_path}")
     return txt_file_path
 
-
 ################################################################################################
 # Hwp파일에서 Text 추출
 ################################################################################################
-def hwp5txt_to_string(hwp5txt, hwp_path):
+def hwp5txt_to_string(hwp_path):
+    hwp5txt = os.getenv("HWP5TXT_PATH")
+    if not hwp5txt:
+        raise EnvironmentError("HWP5TXT_PATH 환경변수가 설정되지 않았습니다.")
     if not os.path.exists(hwp_path):
         raise FileNotFoundError(f"파일이 존재하지 않습니다: {hwp_path}")
     command = f"{hwp5txt} \"{hwp_path}\""
@@ -62,122 +75,27 @@ def hwp5txt_to_string(hwp5txt, hwp_path):
     return extracted_text
 
 ################################################################################################
-# 전체 계약서 텍스트를 받아, 조를 분리하는 함수
+# 전체 계약서 텍스트를 받아, 조를 분리하는 함수 ver2
 ################################################################################################
-def contract_to_articles(text):
-    # "제n조" 단위로 텍스트를 분리
-    pattern = r'(제\d+조(?!\S))'  # "제n조" 뒤에 공백이 있거나 끝났을 때
-    matches = re.split(pattern, text)
-
-    data = {}
-    section_counter = {}  # 각 "제n조"의 중복 횟수를 추적하기 위한 딕셔너리
-    for i in range(1, len(matches), 2):
-        section_title = matches[i].strip()
-        section_content = matches[i + 1].strip()
-
-        # "제n조" 번호 추출
-        section_num = re.match(r'제(\d+)조', section_title).groups()[0]
-
-        # 중복 처리
-        if section_num in data:
-            if section_num in section_counter:
-                section_counter[section_num] += 1
-            else:
-                section_counter[section_num] = 2
-            new_title = f"{section_num}_{section_counter[section_num]}"
-        else:
-            section_counter[section_num] = 1
-            new_title = section_num
-
-        data[new_title] = section_content
-
-    def split_sentences(text):
-        # 문장을 분리만 수행
-        return re.split(r'(\n\n)', text)
-
-    # "제n조"와 "제n조의m"을 그룹화하여 처리하는 함수
-    def group_content_sections(data):
-        grouped_data = {}
-
-        temp_content = {}  # 세부 항목들 임시 저장
-
-        for key, value in data.items():
-            content_sentences = split_sentences(value.strip())  # 문장 분리 수행
-
-            clean_value = re.sub(r'\n\n', '', value.strip())
-            clean_value = re.sub(r'\"갑\"', '갑', clean_value)  # \"갑\"을 갑으로 변환
-            clean_value = re.sub(r'\"을\"', '을', clean_value)  # \"을\"을 을로 변환
-            clean_value = re.sub(r'\\"([^"]+)\\"', r"'\1'", clean_value)
-            clean_value = re.sub(r'\"([^"]+)\"', r"'\1'", clean_value)
-
-            # "제n조" 부분을 n으로만 추출하여 저장
-            grouped_data[key] = [f"제{key}조 {clean_value}"]
-
-            # "제n조의m" 형식 처리
-            temp_key = None
-            for sentence in content_sentences:
-                sentence = re.sub(r'\n\n', '', sentence.strip())
-                sentence = re.sub(r'\"갑\"', '갑', sentence)
-                sentence = re.sub(r'\"을\"', '을', sentence)
-                sentence = re.sub(r'\\"([^"]+)\\"', r"'\1'", sentence)
-                sentence = re.sub(r'\"([^"]+)\"', r"'\1'", sentence)
-                match_sub_section = re.match(r'제(\d+)조의(\d+)', sentence)  # "제n조의m" 찾기
-                if match_sub_section:
-                    # 세부 항목 처리
-                    num, sub_num = match_sub_section.groups()
-                    temp_key = f"{num}-{sub_num}"
-                    if temp_key not in temp_content:
-                        temp_content[temp_key] = []
-                    temp_content[temp_key].append(sentence.strip())
-                    # 추가된 것
-                    grouped_data[num] = [s.split(sentence.strip())[0] if sentence.strip() in s else s for s in grouped_data[num]]
-
-                else:
-                    match_section = re.match(r'제(\d+)조', sentence)  # "제n조" 구분
-                    if match_section:
-                        num = match_section.groups()[0]
-                        temp_key = f"{num}"
-                        if temp_key not in temp_content:
-                            temp_content[temp_key] = []
-                    if temp_key is not None:
-                        temp_content[temp_key].append(sentence.strip())
-
-        # 세부 항목들을 각 조문 바로 뒤에 올 수 있도록 조정
-        for key, value in temp_content.items():
-            if key in grouped_data:
-                grouped_data[key].extend(value)
-            else:
-                grouped_data[key] = value
-
-        return grouped_data
-
-    def sort_grouped_data(grouped_data):
-        # 조항 번호에 따라 정렬
-        sorted_grouped_data = {}
-        # 정렬 기준: 숫자와 텍스트를 모두 고려하여 정렬
-        for key in sorted(grouped_data.keys(), key=lambda x: [int(i) if i.isdigit() else i for i in re.split(r'(\d+)', x)]):
-            sorted_grouped_data[key] = grouped_data[key]
-        return sorted_grouped_data
-
-    def del_empty_content(output_json):
-        for key, value in output_json.items():
-            if isinstance(value, list):
-                output_json[key] = [item for item in value if item]
-        return output_json
-
-    def merge_sentences(grouped_data):
-        for key, value in grouped_data.items():
-            grouped_data[key] = ' '.join(value)  # 리스트 내부 문장을 하나로 합침
-        return grouped_data
-
-    grouped_data = group_content_sections(data)
-    grouped_data = sort_grouped_data(grouped_data)
-    grouped_data = del_empty_content(grouped_data)
-    grouped_data = merge_sentences(grouped_data)
-
-    return grouped_data
-
-
+def contract_to_articles_ver2(txt):
+    pattern, key_pattern = r'(제\d+조(?:의\d+)? \[.+?\])', r'제(\d+)조(?:의(\d+))? \[.+?\]'
+    matches = list(re.finditer(pattern, txt))
+    contract_sections = {}
+    for i, match in enumerate(matches):
+        section_title = match.group(0)
+        start_idx = match.end()
+        end_idx = matches[i + 1].start() if i + 1 < len(matches) else len(txt)
+        section_content = txt[start_idx:end_idx].strip()
+        section_content = section_content.replace('“', '').replace('”', '').replace('\n', '').replace('<표>','')
+        match_title = re.match(key_pattern, section_title)
+        main_num = match_title.group(1)
+        try:
+            sub_num = match_title.group(2)
+        except IndexError:
+            sub_num = None
+        key = f"{main_num}-{sub_num}" if sub_num else main_num
+        contract_sections[key] = section_title + ' ' + section_content
+    return contract_sections
 ################################################################################################
 # 조를 받아 문장으로 분리
 ################################################################################################
@@ -257,12 +175,15 @@ def load_trained_model_statice(model_class, model_file):
 # 토크나이징 모델 로드 & 전체 모델과 데이터 로드
 ################################################################################################
 def initialize_models():
-    global unfair_model, article_model, toxic_model, toxic_tokenizer, law_data, law_embeddings, device, tokenizer, bert_model, summary_model, summary_tokenizer
+    global unfair_model, article_model, toxic_model, toxic_tokenizer, law_data, law_embeddings, device, tokenizer, bert_model, summary_model_ver2, summary_tokenizer_ver2
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = BertTokenizer.from_pretrained("klue/bert-base")
     bert_model = BertModel.from_pretrained("klue/bert-base").to(device)
     nltk.data.path.append(f'./nltk_data')
+
+    summary_model_ver2 = BartForConditionalGeneration.from_pretrained('./model/article_summary_ver2/')
+    summary_tokenizer_ver2 = PreTrainedTokenizerFast.from_pretrained('./model/article_summary_ver2/')
 
     class BertMLPClassifier(nn.Module):
         def __init__(self, bert_model_name="klue/bert-base", hidden_size=256):
@@ -308,9 +229,6 @@ def initialize_models():
     # 독소 조항 판별 모델 로드
     toxic_model = load_trained_model_statice(BertMLPClassifier, f"./model/toxic_identification/klue_bert_mlp.pth")
 
-    # 요약 모델 로드
-    summary_model = AutoModelForSeq2SeqLM.from_pretrained(f'./model/article_summary')
-    summary_tokenizer = AutoTokenizer.from_pretrained(f'./model/article_summary')
     # 법률 데이터 로드
     # with open("./Data/law_embeddings.pkl", "rb") as f:
     with open("./Data/law_embeddings.pkl", "rb") as f:
@@ -486,18 +404,14 @@ def explanation_AI(sentence, unfair_label, toxic_label, law=None):
     ).choices[0].message.content
     return response
 
-
 ################################################################################################
 # 요약 AI
 ################################################################################################
-def article_summary_AI(article):
-    prefix = "summarize: "
-    inputs = [prefix + article]
-    inputs = summary_tokenizer(inputs, max_length=3000, truncation=True, return_tensors="pt")
-    output = summary_model.generate(**inputs, num_beams=5, do_sample=True, min_length=100, max_length=300, temperature=1.5)
-    decoded_output = summary_tokenizer.batch_decode(output, skip_special_tokens=True)[0]
-    result = nltk.sent_tokenize(decoded_output.strip())[0]
-    return result
+def article_summary_AI_ver2(prompt, article, max_length=256):
+    input_ids = summary_tokenizer_ver2(f"{prompt}{article}", return_tensors="pt").input_ids
+    summary_ids = summary_model_ver2.generate(input_ids, max_length=max_length, num_beams=4, early_stopping=True)
+    summary = summary_tokenizer_ver2.decode(summary_ids[0], skip_special_tokens=True)
+    return summary
 ################################################################################################
 # 파이프 라인
 ################################################################################################
@@ -505,16 +419,16 @@ def pipline(contract_path):
     indentification_results = []
     summary_results = []
     print('한글 파일에서 텍스트 추출')
-    txt = hwp5txt_to_string(hwp5txt_exe_path,contract_path)
+    txt = hwp5txt_to_string(contract_path)
     print('텍스트를 조 단위로 분리')
-    articles = contract_to_articles(txt)
+    articles = contract_to_articles_ver2(txt)
     for article_number, article_detail in articles.items():
         print(f'*******************{article_number}조 문장 분리 시작*******************')
         match = re.match(r"(제\s?\d+조(?:의\s?\d+)?\s?)\[(.*?)\]\s?(.+)", article_detail, re.DOTALL)
         article_title = match.group(2)
         article_content = match.group(3)
         sentences = article_to_sentences(article_number,article_title, article_content)
-        summary = article_summary_AI(article_detail)
+        summary = article_summary_AI_ver2(prompt, article_detail)
         summary_results.append(
                         {
                         'article_number':article_number, # 조 번호
