@@ -32,7 +32,7 @@ async def upload_file(file: UploadFile = File(...)):
         print("파일이 저장되었습니다.")
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    hwp5txt_exe ="./hwp5txt.exe"
+    #hwp5txt_exe ="./hwp5txt.exe"
     #converted_file = hwp5txt_to_string(hwp5txt_exe, file_path)
 
     mo.initialize_models()

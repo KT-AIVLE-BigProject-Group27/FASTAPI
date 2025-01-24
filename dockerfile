@@ -25,6 +25,12 @@ RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://
 # 나머지 의존성 설치
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
+# hwp5txt 경로를 환경변수로 설정
+ENV HWP5TXT_PATH=/usr/local/bin/hwp5txt
+
+# HWP5TXT 경로 확인 (디버깅용)
+RUN echo $HWP5TXT_PATH && ls -l $HWP5TXT_PATH
+
 # 애플리케이션 코드 복사
 COPY . /app
 

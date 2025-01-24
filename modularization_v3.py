@@ -29,12 +29,10 @@ open_API_KEY_path = 'D:/Key/openAI_key.txt'
 #open_API_KEY_path = 'D:/Key/openAI_key.txt'
 
 ######################## hwp5txt path ########################
-# 진석
-# hwp5txt_exe_path =
-# 계승
-# hwp5txt_exe_path = "C:/Users/LeeGyeSeung/Desktop/KT_AIVLE/빅프로젝트폴더/KT_AIVLE_Big_Project/Data_Analysis/Contract/hwp5txt.exe"
-# 명재
-hwp5txt_exe_path = 'hwp5txt'
+# 배포시 경로로
+hwp5txt_exe_path = "/usr/local/bin/hwp5txt"
+# local 경로 
+#hwp5txt_exe_path = 'hwp5txt'
 ################################################################################################
 # Hwp파일에서 Text 추출 후 txt 파일로 변환
 ################################################################################################
@@ -58,7 +56,10 @@ def hwp5txt_to_txt(hwp_path, output_dir=None):
 ################################################################################################
 # Hwp파일에서 Text 추출
 ################################################################################################
-def hwp5txt_to_string(hwp5txt, hwp_path):
+def hwp5txt_to_string(hwp_path):
+    hwp5txt = os.getenv("HWP5TXT_PATH")
+    if not hwp5txt:
+        raise EnvironmentError("HWP5TXT_PATH 환경변수가 설정되지 않았습니다.")
     if not os.path.exists(hwp_path):
         raise FileNotFoundError(f"파일이 존재하지 않습니다: {hwp_path}")
     command = f"{hwp5txt} \"{hwp_path}\""
@@ -418,7 +419,7 @@ def pipline(contract_path):
     indentification_results = []
     summary_results = []
     print('한글 파일에서 텍스트 추출')
-    txt = hwp5txt_to_string(hwp5txt_exe_path,contract_path)
+    txt = hwp5txt_to_string(contract_path)
     print('텍스트를 조 단위로 분리')
     articles = contract_to_articles_ver2(txt)
     for article_number, article_detail in articles.items():
