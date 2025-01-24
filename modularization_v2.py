@@ -347,7 +347,7 @@ def find_most_similar_law_within_article(sentence, predicted_article, law_data):
     return {
         "Article number": best_match["article_number"],
         "Article title": best_match["article_title"],
-        "Paragraph number": f"Paragraph {best_match['paragraph_number']}" if best_match["paragraph_number"] else None,
+        "Paragraph number": f"{best_match['paragraph_number']}" if best_match["paragraph_number"] else None,
         "Subparagraph number": "Subparagraph" if best_match.get("subparagraph_detail") else None,
         "Article detail": best_match["article_detail"],
         "Paragraph detail": best_match["paragraph_detail"],
@@ -495,9 +495,9 @@ def pipline(contract_path):
                 if unfair_result or toxic_result:
                     indentification_results.append(
                                     {
-                                        'contract_article_number': article_number, # 계약서 조
-                                        'contract_clause_number' : clause_number, # 계약서 항
-                                        'contract_subclause_number': subclause_number, # 계약서 호
+                                        'contract_article_number': article_number if article_number != "" else None, # 계약서 조
+                                        'contract_clause_number' : clause_number if clause_number != "" else None, # 계약서 항
+                                        'contract_subclause_number': subclause_number if subclause_number != "" else None, # 계약서 호
                                         'Sentence': sentence, # 식별
                                         'Unfair': unfair_result, # 불공정 여부
                                         'Unfair_percent': unfair_percent, # 불공정 확률
@@ -505,7 +505,7 @@ def pipline(contract_path):
                                         'Toxic_percent': toxic_percent,  # 독소 확률
                                         'law_article_number': law_details['Article number'],  # 어긴 법 조   (불공정 1일때, 아니면 None)
                                         'law_clause_number_law': law_details['Paragraph number'], # 어긴 법 항 (불공정 1일때, 아니면 None)
-                                        'law_subclause_numbe_lawr': law_details['Subparagraph number'],  # 어긴 법 호 (불공정 1일때, 아니면 None)
+                                        'law_subclause_number_law': law_details['Subparagraph number'],  # 어긴 법 호 (불공정 1일때, 아니면 None)
                                         'explain': None #explain (불공정 1또는 독소 1일때, 아니면 None)
                                         }
                     )
