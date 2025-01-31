@@ -1,11 +1,12 @@
 ################################################################################################
 # 필요 패키지 import
 ################################################################################################
-import subprocess, pickle, openai, torch, json, os, re, nltk, numpy as np, torch.nn as nn
-from transformers import BertTokenizer, BertModel, BertForSequenceClassification, AutoTokenizer, AutoModelForSeq2SeqLM
+import subprocess, pickle, openai, torch, json, os, re, fitz, numpy as np, torch.nn as nn
+from transformers import BertTokenizer, BertModel
 from sklearn.metrics.pairwise import cosine_similarity
 
 from transformers import BartForConditionalGeneration, PreTrainedTokenizerFast
+
 
 prompt = (
     "다음은 계약서의 조항입니다. 이 조항의 주요 내용을 다음 기준에 따라 간략히 요약하세요:\n"
@@ -23,8 +24,8 @@ prompt = (
 # 계승
 # open_API_KEY_path =
 # 명재
-open_API_KEY_path = 'D:/Key/openAI_key.txt'
-# 상대경로 
+open_API_KEY_path = './Key/openAI_key.txt'
+# 상대경로
 #open_API_KEY_path = 'D:/Key/openAI_key.txt'
 
 ######################## hwp5txt path ########################
@@ -35,32 +36,12 @@ open_API_KEY_path = 'D:/Key/openAI_key.txt'
 # 명재
 hwp5txt_exe_path = 'C:/Users/User/anaconda3/envs/bigp/Scripts/hwp5txt.exe'
 ################################################################################################
-# Hwp파일에서 Text 추출 후 txt 파일로 변환
-################################################################################################
-def hwp5txt_to_txt(hwp_path, output_dir=None):
-    if not os.path.exists(hwp_path):
-        raise FileNotFoundError(f"파일이 존재하지 않습니다: {hwp_path}")
-
-    if output_dir is None:
-        output_dir = os.path.dirname(hwp_path)
-
-    base_name = os.path.splitext(os.path.basename(hwp_path))[0]
-    txt_file_path = os.path.join(output_dir, f"{base_name}.txt")
-
-    # hwp5txt 명령어 실행
-    command = f"hwp5txt \"{hwp_path}\" > \"{txt_file_path}\""
-    subprocess.run(command, shell=True, check=True)
-
-    print(f"텍스트 파일로 저장 완료: {txt_file_path}")
-    return txt_file_path
-
-################################################################################################
 # Hwp파일에서 Text 추출
 ################################################################################################
-def hwp5txt_to_string(hwp5txt, hwp_path):
+def hwp5txt_to_string(hwp_path):
     if not os.path.exists(hwp_path):
         raise FileNotFoundError(f"파일이 존재하지 않습니다: {hwp_path}")
-    command = f"{hwp5txt} \"{hwp_path}\""
+    command = f"{hwp5txt_exe_path} \"{hwp_path}\""
     result = subprocess.run(
         command,
         shell=True,
@@ -71,7 +52,26 @@ def hwp5txt_to_string(hwp5txt, hwp_path):
     )
     extracted_text = result.stdout
     return extracted_text
-
+################################################################################################
+# PDF파일에서 Text 추출
+################################################################################################
+def extract_text_from_pdf(pdf_path):
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"파일이 존재하지 않습니다: {pdf_path}")
+    doc = fitz.open(pdf_path)
+    text = ""
+    for page_num in range(doc.page_count):
+        page = doc.load_page(page_num)
+        text += page.get_text()
+    text = text.replace('\n', ' ')
+    text = re.sub(r'-\s?\d+\s?-', '', text)
+    return text
+################################################################################################
+# # 날짜 형식 변형 (예: 2023. 01. 01. => 2023-01-01)
+################################################################################################
+def replace_date_with_placeholder(content):
+    content_with_placeholder = re.sub(r"(\d{4})\.\s(\d{2})\.\s(\d{2}).", r"\1-\2-\3", content)
+    return content_with_placeholder
 ################################################################################################
 # 전체 계약서 텍스트를 받아, 조를 분리하는 함수 ver2
 ################################################################################################
@@ -129,10 +129,6 @@ def split_once_by_sub_clauses(content):
 
 
 def article_to_sentences(article_number,article_title, article_content):
-    symtostr = {
-        "①": "1", "②": "2", "③": "3", "④": "4", "⑤": "5",
-        "⑥": "6", "⑦": "7", "⑧": "8", "⑨": "9", "⑩": "10"
-    }
     sentences = []
     if '①' in article_content:
         clause_sections = split_once_by_clauses(article_content)
@@ -141,14 +137,16 @@ def article_to_sentences(article_number,article_title, article_content):
             clause_content = clause_sections[i + 1]
             if '1.' in clause_content:
                 sub_clause_sections = split_once_by_sub_clauses(clause_content)
+                sentences.append([article_number.strip(), article_title.strip(), '', clause_number.strip(),clause_content.split('1.')[0].strip(), '', ''])
                 for j in range(0, len(sub_clause_sections), 2):
                     sub_clause_number = sub_clause_sections[j]
                     sub_clause_content = sub_clause_sections[j + 1]
-                    sentences.append([article_number.strip(), article_title.strip(), '', symtostr[clause_number].strip(), clause_content.split('1.')[0].strip(), sub_clause_number[0].strip(), sub_clause_content.strip()])
+                    sentences.append([article_number.strip(), article_title.strip(), '', clause_number.strip(), clause_content.split('1.')[0].strip(), sub_clause_number[0].strip(), sub_clause_content.strip()])
             else:
-                sentences.append([article_number.strip(), article_title.strip(), '', symtostr[clause_number].strip(), clause_content.split('①')[0].strip(), '', ''])
+                sentences.append([article_number.strip(), article_title.strip(), '', clause_number.strip(), clause_content.strip(), '', ''])
     elif '1.' in article_content:
         sub_clause_sections = split_once_by_sub_clauses(article_content)
+        sentences.append([article_number.strip(), article_title.strip(), article_content.split('1.')[0].strip(), '', '', '', ''])
         for j in range(0, len(sub_clause_sections), 2):
             sub_clause_number = sub_clause_sections[j]
             sub_clause_content = sub_clause_sections[j + 1]
@@ -173,15 +171,14 @@ def load_trained_model_statice(model_class, model_file):
 # 토크나이징 모델 로드 & 전체 모델과 데이터 로드
 ################################################################################################
 def initialize_models():
-    global unfair_model, article_model, toxic_model, toxic_tokenizer, law_data, law_embeddings, device, tokenizer, bert_model, summary_model_ver2, summary_tokenizer_ver2
+    global unfair_model, article_model, toxic_model, toxic_tokenizer, law_data, law_embeddings, device, tokenizer, bert_model, summary_model, summary_tokenizer
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = BertTokenizer.from_pretrained("klue/bert-base")
     bert_model = BertModel.from_pretrained("klue/bert-base").to(device)
-    nltk.data.path.append(f'./nltk_data')
 
-    summary_model_ver2 = BartForConditionalGeneration.from_pretrained('D:/Model/article_summary_ver2/')
-    summary_tokenizer_ver2 = PreTrainedTokenizerFast.from_pretrained('D:/Model/article_summary_ver2/')
+    summary_model = BartForConditionalGeneration.from_pretrained('./Model/article_summary/')
+    summary_tokenizer = PreTrainedTokenizerFast.from_pretrained('./Model/article_summary/')
 
     class BertMLPClassifier(nn.Module):
         def __init__(self, bert_model_name="klue/bert-base", hidden_size=256):
@@ -201,7 +198,7 @@ def initialize_models():
             x = self.fc2(x)
             return self.sigmoid(x)  # 0~1 확률값 반환
     class BertArticleClassifier(nn.Module):
-        def __init__(self, bert_model_name="klue/bert-base", hidden_size=256, num_classes=27):
+        def __init__(self, bert_model_name="klue/bert-base", hidden_size=256, num_classes=10):
             super(BertArticleClassifier, self).__init__()
             self.bert = BertModel.from_pretrained(bert_model_name)
             self.fc1 = nn.Linear(self.bert.config.hidden_size, hidden_size)
@@ -219,20 +216,18 @@ def initialize_models():
             x = self.fc2(x)
             return self.softmax(x)  # 확률 분포 출력
     # 불공정 조항 판별 모델 로드
-    unfair_model = load_trained_model_statice(BertMLPClassifier, f"./model/unfair_identification/klue_bert_mlp.pth")
+    unfair_model = load_trained_model_statice(BertMLPClassifier, f"./Model/unfair_identification/klue_bert_mlp.pth")
 
     # 조항 예측 모델 로드
-    article_model = load_trained_model_statice(BertArticleClassifier, f"./model//article_prediction/klue_bert_mlp.pth")
+    article_model = load_trained_model_statice(BertArticleClassifier, f"./Model//article_prediction/klue_bert_mlp.pth")
 
     # 독소 조항 판별 모델 로드
-    toxic_model = load_trained_model_statice(BertMLPClassifier, f"./model/toxic_identification/klue_bert_mlp.pth")
+    toxic_model = load_trained_model_statice(BertMLPClassifier, f"./Model/toxic_identification/klue_bert_mlp.pth")
 
     # 법률 데이터 로드
-    # with open("./Data/law_embeddings.pkl", "rb") as f:
-    with open("./Data/law_embeddings.pkl", "rb") as f:
+    with open("./Data_Analysis/law/law_embeddings.pkl", "rb") as f:
         data = pickle.load(f)
-    # with open("./Data/law_data_ver2.json", "r", encoding="utf-8") as f:
-    with open("./Data/law_data_ver2.json", "r", encoding="utf-8") as f:
+    with open("./Data_Analysis/law/law_data_ver2.json", "r", encoding="utf-8") as f:
         law_data = json.load(f)
     law_embeddings = np.array(data["law_embeddings"])
 
@@ -282,11 +277,11 @@ def find_most_similar_law_within_article(sentence, predicted_article, law_data):
         return {
             "Article number": None,
             "Article title": None,
-            "Paragraph number": None,
-            "Subparagraph number": None,
+            "clause number": None,
+            "subclause number": None,
             "Article detail": None,
-            "Paragraph detail": None,
-            "Subparagraph detail": None,
+            "clause detail": None,
+            "subclause detail": None,
             "similarity": None
         }
     best_match = None
@@ -303,9 +298,9 @@ def find_most_similar_law_within_article(sentence, predicted_article, law_data):
                     "article_number": article["article_number"],
                     "article_title": article_title,
                     "article_detail": article_detail,
-                    "paragraph_number": None,
-                    "paragraph_detail": None,
-                    "subparagraphs": None,
+                    "clause_number": None,
+                    "clause_detail": None,
+                    "subclauses": None,
                     "similarity": best_similarity
                 }
         for clause in article.get("clauses", []):
@@ -320,38 +315,38 @@ def find_most_similar_law_within_article(sentence, predicted_article, law_data):
                         "article_number": article["article_number"],
                         "article_title": article_title,
                         "article_detail": article_detail,
-                        "paragraph_number": clause_number,
-                        "paragraph_detail": clause_text,
-                        "subparagraphs": clause.get("sub_clauses", []),
+                        "clause_number": clause_number,
+                        "clause_detail": clause_text,
+                        "subclauses": clause.get("sub_clauses", []),
                         "similarity": best_similarity
                     }
-        if best_match and best_match["subparagraphs"]:
-            for subclause in best_match["subparagraphs"]:
+        if best_match and best_match["subclauses"]:
+            for subclause in best_match["subclauses"]:
                 if isinstance(subclause, str):
                     subclause_embedding = bert_model(**tokenizer(subclause, return_tensors="pt", padding=True, truncation=True).to(device)).pooler_output.cpu().detach().numpy()[0]
                     similarity = cosine_similarity([contract_embedding], [subclause_embedding])[0][0]
                     if similarity > best_similarity:
                         best_similarity = similarity
-                        best_match["subparagraph_detail"] = subclause
+                        best_match["subclause_detail"] = subclause
     if best_match is None:
         return {
             "Article number": f"Article {predicted_article}",
             "Article title": None,
-            "Paragraph number": None,
-            "Subparagraph number": None,
+            "clause number": None,
+            "subclause number": None,
             "Article detail": None,
-            "Paragraph detail": None,
-            "Subparagraph detail": None,
+            "clause detail": None,
+            "subclause detail": None,
             "similarity": None
         }
     return {
         "Article number": best_match["article_number"],
         "Article title": best_match["article_title"],
-        "Paragraph number": f"{best_match['paragraph_number']}" if best_match["paragraph_number"] else None,
-        "Subparagraph number": "Subparagraph" if best_match.get("subparagraph_detail") else None,
+        "clause number": f"{best_match['clause_number']}" if best_match["clause_number"] else None,
+        "subclause number": best_match.get("subclause_detail")[0] if best_match.get("subclause_detail") else None,
         "Article detail": best_match["article_detail"],
-        "Paragraph detail": best_match["paragraph_detail"],
-        "Subparagraph detail": best_match.get("subparagraph_detail", None),
+        "clause detail": best_match["clause_detail"],
+        "subclause detail": best_match.get("subclause_detail", None),
         "similarity": best_similarity
     }
 ################################################################################################
@@ -406,9 +401,9 @@ def explanation_AI(sentence, unfair_label, toxic_label, law=None):
 # 요약 AI
 ################################################################################################
 def article_summary_AI_ver2(prompt, article, max_length=256):
-    input_ids = summary_tokenizer_ver2(f"{prompt}{article}", return_tensors="pt").input_ids
-    summary_ids = summary_model_ver2.generate(input_ids, max_length=max_length, num_beams=4, early_stopping=True)
-    summary = summary_tokenizer_ver2.decode(summary_ids[0], skip_special_tokens=True)
+    input_ids = summary_tokenizer(f"{prompt}{article}", return_tensors="pt").input_ids
+    summary_ids = summary_model.generate(input_ids, max_length=max_length, num_beams=4, early_stopping=True)
+    summary = summary_tokenizer.decode(summary_ids[0], skip_special_tokens=True)
     return summary
 ################################################################################################
 # 파이프 라인
@@ -417,9 +412,11 @@ def pipline(contract_path):
     indentification_results = []
     summary_results = []
     print('한글 파일에서 텍스트 추출')
-    txt = hwp5txt_to_string(hwp5txt_exe_path,contract_path)
+    txt = hwp5txt_to_string(contract_path)
     print('텍스트를 조 단위로 분리')
+    txt = replace_date_with_placeholder(txt)
     articles = contract_to_articles_ver2(txt)
+
     for article_number, article_detail in articles.items():
         print(f'*******************{article_number}조 문장 분리 시작*******************')
         match = re.match(r"(제\s?\d+조(?:의\s?\d+)?\s?)\[(.*?)\]\s?(.+)", article_detail, re.DOTALL)
@@ -435,80 +432,58 @@ def pipline(contract_path):
                         }
         )
         print(f'{article_number}조 요약: {summary}')
-        pre_article_detail = ''
-        pre_clause_detail = ''
-        pre_subclause_detail= ''
-        for _, _, _, clause_number, clause_detail, subclause_number, subclause_detail in sentences:
-            for idx,sentence in enumerate([article_detail, clause_detail, subclause_detail]):
-                if idx==0:
-                    if pre_article_detail == sentence:
-                        continue
-                    else:
-                        pre_article_detail = sentence
-                elif idx==1:
-                    if pre_clause_detail == sentence:
-                        continue
-                    else:
-                        pre_clause_detail = sentence
+        for article_number, article_title, article_content, clause_number, clause_detail, subclause_number, subclause_detail in sentences:
+            sentence = re.sub(r'\s+', ' ', f'[{article_title}] {article_content} {clause_number} {clause_detail} {subclause_number + "." if subclause_number else ""} {subclause_detail}').strip()
+            unfair_result, unfair_percent = predict_unfair_clause(unfair_model, sentence, 0.5011)
+            if unfair_result:
+                # print('불공정!!!')
+                predicted_article = predict_article(article_model, sentence)  # 예측된 조항
+                law_details = find_most_similar_law_within_article(sentence, predicted_article, law_data)
+                toxic_result = 0
+                toxic_percent = 0
+            else:
+                toxic_result, toxic_percent = predict_toxic_clause(toxic_model, sentence, 0.5011)
+                # print('독소!!!' if toxic_result else '일반!!!')
+                law_details = {
+                    "Article number": None,
+                    "Article title": None,
+                    "clause number": None,
+                    "subclause number": None,
+                    "Article detail": None,
+                    "clause detail": None,
+                    "subclause detail": None,
+                    "similarity": None
+                }
+            law_text = []
+            if law_details.get("Article number"):
+                law_text.append(f"{law_details['Article number']}({law_details['Article title']})")
+            if law_details.get("Article detail"):
+                law_text.append(f": {law_details['Article detail']}")
+            if law_details.get("clause number"):
+                law_text.append(f" {law_details['clause number']}: {law_details['clause detail']}")
+            if law_details.get("subclause number"):
+                law_text.append(f" {law_details['subclause number']}: {law_details['subclause detail']}")
+            law = "".join(law_text) if law_text else None
 
-                elif idx==2:
-                    if pre_subclause_detail == sentence:
-                        continue
-                    else:
-                        pre_subclause_detail = sentence
+            # explain = explanation_AI(sentence, unfair_result, toxic_result, law)
 
-
-                # print(f'sentence: {sentence}')
-                unfair_result, unfair_percent = predict_unfair_clause(unfair_model, sentence, 0.5011)
-                if unfair_result:
-                    # print('불공정!!!')
-                    predicted_article = predict_article(article_model, sentence)  # 예측된 조항
-                    law_details = find_most_similar_law_within_article(sentence, predicted_article, law_data)
-                    toxic_result = 0
-                    toxic_percent = 0
-                else:
-                    toxic_result, toxic_percent = predict_toxic_clause(toxic_model, sentence, 0.5011)
-                    # print('독소!!!' if toxic_result else '일반!!!')
-                    law_details = {
-                        "Article number": None,
-                        "Article title": None,
-                        "Paragraph number": None,
-                        "Subparagraph number": None,
-                        "Article detail": None,
-                        "Paragraph detail": None,
-                        "Subparagraph detail": None,
-                        "similarity": None
-                    }
-                law_text = []
-                if law_details.get("Article number"):
-                    law_text.append(f"{law_details['Article number']}({law_details['Article title']})")
-                if law_details.get("Article detail"):
-                    law_text.append(f": {law_details['Article detail']}")
-                if law_details.get("Paragraph number"):
-                    law_text.append(f" {law_details['Paragraph number']}: {law_details['Paragraph detail']}")
-                if law_details.get("Subparagraph number"):
-                    law_text.append(f" {law_details['Subparagraph number']}: {law_details['Subparagraph detail']}")
-                law = "".join(law_text) if law_text else None
-
-                # explain = explanation_AI(sentence, unfair_result, toxic_result, law)
-
-                if unfair_result or toxic_result:
-                    indentification_results.append(
-                                    {
-                                        'contract_article_number': article_number if article_number != "" else None, # 계약서 조
-                                        'contract_clause_number' : clause_number if clause_number != "" else None, # 계약서 항
-                                        'contract_subclause_number': subclause_number if subclause_number != "" else None, # 계약서 호
-                                        'Sentence': sentence, # 식별
-                                        'Unfair': unfair_result, # 불공정 여부
-                                        'Unfair_percent': unfair_percent, # 불공정 확률
-                                        'Toxic': toxic_result,  # 독소 여부
-                                        'Toxic_percent': toxic_percent,  # 독소 확률
-                                        'law_article_number': law_details['Article number'],  # 어긴 법 조   (불공정 1일때, 아니면 None)
-                                        'law_clause_number_law': law_details['Paragraph number'], # 어긴 법 항 (불공정 1일때, 아니면 None)
-                                        'law_subclause_number_law': law_details['Subparagraph number'],  # 어긴 법 호 (불공정 1일때, 아니면 None)
-                                        'explain': None #explain (불공정 1또는 독소 1일때, 아니면 None)
-                                        }
-                    )
+            if unfair_result or toxic_result:
+                indentification_results.append(
+                                {
+                                    'contract_article_number': article_number if article_number != "" else None, # 계약서 조
+                                    'contract_clause_number' : clause_number if clause_number != "" else None, # 계약서 항
+                                    'contract_subclause_number': subclause_number if subclause_number != "" else None, # 계약서 호
+                                    'Sentence': sentence, # 식별
+                                    'Unfair': unfair_result, # 불공정 여부
+                                    'Unfair_percent': unfair_percent, # 불공정 확률
+                                    'Toxic': toxic_result,  # 독소 여부
+                                    'Toxic_percent': toxic_percent,  # 독소 확률
+                                    'law_article_number': law_details['Article number'],  # 어긴 법 조   (불공정 1일때, 아니면 None)
+                                    'law_clause_number_law': law_details['clause number'], # 어긴 법 항 (불공정 1일때, 아니면 None)
+                                    'law_subclause_number_law': law_details['subclause number'],  # 어긴 법 호 (불공정 1일때, 아니면 None)
+                                    'explain': None #explain (불공정 1또는 독소 1일때, 아니면 None)
+                                    }
+                )
     return indentification_results, summary_results
     ############################################################################################################
     ############################################################################################################
