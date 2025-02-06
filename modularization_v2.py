@@ -1,36 +1,11 @@
 ################################################################################################
 # 필요 패키지 import
 ################################################################################################
-import subprocess, pickle, openai, torch, json, os, re, fitz, numpy as np, torch.nn as nn
-from transformers import BertTokenizer, BertModel
+import pickle, openai, torch, json, os, re, fitz, numpy as np, torch.nn as nn
 from sklearn.metrics.pairwise import cosine_similarity
-from transformers import BartForConditionalGeneration, PreTrainedTokenizerFast, ElectraTokenizer, ElectraModel
+from transformers import BartForConditionalGeneration, PreTrainedTokenizerFast, ElectraTokenizer, ElectraModel, BertTokenizer, BertModel, AutoModelForCausalLM, AutoTokenizer
 from kobert_transformers import get_tokenizer
 
-######################## hwp5txt path ########################
-# 진석
-# hwp5txt_exe_path =
-# 계승
-# hwp5txt_exe_path = "C:/Users/LeeGyeSeung/Desktop/KT_AIVLE/빅프로젝트폴더/KT_AIVLE_Big_Project/Data_Analysis/Contract/hwp5txt.exe"
-# 명재
-hwp5txt_exe_path = 'C:/Users/User/anaconda3/envs/bigp/Scripts/hwp5txt.exe'
-################################################################################################
-# Hwp파일에서 Text 추출
-################################################################################################
-def hwp5txt_to_string(hwp_path):
-    if not os.path.exists(hwp_path):
-        raise FileNotFoundError(f"파일이 존재하지 않습니다: {hwp_path}")
-    command = f"{hwp5txt_exe_path} \"{hwp_path}\""
-    result = subprocess.run(
-        command,
-        shell=True,
-        capture_output=True,
-        text=True,
-        encoding='utf-8',
-        errors='ignore'
-    )
-    extracted_text = result.stdout
-    return extracted_text
 ################################################################################################
 # PDF파일에서 Text 추출
 ################################################################################################
@@ -157,9 +132,8 @@ def initialize_models():
     law_tokenizer = BertTokenizer.from_pretrained("klue/bert-base")
     law_model = BertModel.from_pretrained("klue/bert-base").to(device)
     print('summary model loading...')
-    summary_model = BartForConditionalGeneration.from_pretrained('./Model/article_summary/')
-    summary_tokenizer = PreTrainedTokenizerFast.from_pretrained('./Model/article_summary/')
-
+    summary_model = AutoModelForCausalLM.from_pretrained('./Model/article_summary',trust_remote_code=True)
+    summary_tokenizer = AutoTokenizer.from_pretrained('./Model/article_summary',trust_remote_code=True)
     class KoBERTMLPClassifier(nn.Module):
         def __init__(self):
             super(KoBERTMLPClassifier, self).__init__()
@@ -362,60 +336,70 @@ def explanation_AI(sentence, unfair_label, toxic_label, law=None):
     client = openai.OpenAI()
     if unfair_label == 0 and toxic_label == 0:
         return None
-    prompt = f"""
-        아래 계약 조항이 특정 법률을 위반하는지 분석하고, 조항(제n조), 항(제m항), 호(제z호) 형식으로 **명확하고 간결하게** 설명하세요.
-        📌 **설명할 때는 사용자에게 직접 말하는 듯한 자연스러운 문장으로 구성하세요.**
-        📌 **한눈에 보기 쉽도록 짧고 명확한 문장을 사용하세요.**
-        📌 **불공정 라벨이 1인 경우에는 불공정에 관한 설명만 하고, 독소 라벨이 1인 경우에는 독소에 관한 설명한 하세요**
 
-        계약 조항: "{sentence}"
-        불공정 라벨: {unfair_label} (1일 경우 불공정)
-        독소 라벨: {toxic_label} (1일 경우 독소)   
-        {f"관련 법 조항: {law}" if law else "관련 법 조항 없음"}
+    if unfair_label == 1:
+        prompt = f"""
+            아래 계약 조항이 특정 법률을 위반하는지 분석하고, 해당 법 조항(제n조 제m항 제z호)을 위반했다는 사실을 명확하게 설명하세요.
 
-        🔴 **불공정 조항일 경우:**
-        1️⃣ **위반된 법 조항을 '제n조 제m항 제z호' 형식으로 먼저 말해주세요.**
-        2️⃣ **위반 이유를 간결하게 설명하세요.**
-        3️⃣ **설명은 '🚨 법 위반!', '🔍 이유' 순서로 구성하세요.**
+            계약 조항: "{sentence}"
+            관련 법 조항: {law if law else "관련 법 조항 없음"}
 
-        ⚫ **독소 조항일 경우:**
-        1️⃣ **법 위반이 아니라면, 해당 조항이 계약 당사자에게 어떤 위험을 초래하는지 설명하세요.**
-        2️⃣ **구체적인 문제점을 짧고 명확한 문장으로 설명하세요.**
-        3️⃣ **설명은 '💀 독소 조항', '🔍 이유' 순서로 구성하세요.**
+            설명을 다음 형식으로 작성하세요:
+            "어떤 법의 n조 m항 z호를 위반했습니다. 이유~~~"
 
-        ⚠️ 참고: 제공된 법 조항이 실제로 위반된 조항이 아닐 경우, **GPT가 판단한 적절한 법 조항을 직접 사용하여 설명하세요.** 
-        그러나 원래 제공된 법 조항과 비교하여 반박하는 방식으로 설명하지 마세요.
-    """
+            ⚠️ 제공된 법 조항이 실제로 위반된 조항이 아닐 경우, GPT가 판단한 적절한 법 조항을 직접 사용하여 설명하세요.
+        """
+    elif toxic_label == 1:
+        prompt = f"""
+            아래 계약 조항이 독소 조항인지 분석하고, 독소 조항이라면 그 이유를 설명하세요.
+
+            계약 조항: "{sentence}"
+
+            설명을 다음 형식으로 작성하세요:
+            "무엇무엇 때문에 독소입니다."
+        """
+
     response = client.chat.completions.create(
         model="gpt-4",
-        messages=[{"role": "system", "content":
-                            "당신은 계약서 조항이 특정 법률을 위반하는지 분석하는 법률 전문가입니다. \
-                            불공정 조항의 경우, 어떤 법 조항을 위반했는지 조항(제n조), 항(제m항), 호(제z호) 형식으로 정확히 명시한 후 설명하세요. \
-                            만약 제공된 법 조항이 실제로 위반된 조항이 아니라면, GPT가 판단한 적절한 법 조항을 사용하여 설명하세요. \
-                            독소 조항은 법률 위반이 아니라 계약 당사자에게 미치는 위험성을 중심으로 설명하세요."
-                   },
-                  {"role": "user", "content": prompt}],
+        messages=[
+            {"role": "system",
+             "content": "당신은 계약서 조항이 특정 법률을 위반하는지 분석하는 법률 전문가입니다. \n불공정 조항의 경우, 어떤 법 조항을 위반했는지 조항(제n조 제m항 제z호) 형식으로 정확히 명시한 후 설명하세요. \n제공된 법 조항이 실제로 위반된 조항이 아닐 경우, GPT가 판단한 적절한 법 조항을 사용하세요. \n독소 조항은 법률 위반이 아니라 계약 당사자에게 미치는 위험성을 중심으로 설명하세요.\n 반드시 200 token 이하로 작성해주세요."},
+            {"role": "user", "content": prompt}
+        ],
         temperature=0.7,
-        max_tokens=300
+        max_tokens=500
     ).choices[0].message.content
-    return response
 
+    return response.strip()
 ################################################################################################
 # 요약 AI
 ################################################################################################
-def article_summary_AI_ver2(article):
-    prompt = (
-        "다음은 계약서의 조항입니다. 이 조항의 주요 내용을 다음 기준에 따라 간략히 요약하세요:\n"
-        "1. 이 조항이 규정하는 주요 목적 또는 대상\n"
-        "2. 갑과 을의 권리와 의무\n"
-        "3. 이행해야 할 절차와 조건\n"
-        "4. 위반 시 결과 또는 조치\n\n"
-        "요약은 각 기준에 따라 간결하고 명확하게 작성하며, 중복을 피하세요. "
-        "조 제목과 관련된 핵심 정보를 반드시 포함하세요.\n\n"
-    )
-    input_ids = summary_tokenizer(f"{prompt}{article}", return_tensors="pt").input_ids
-    summary_ids = summary_model.generate(input_ids, max_length=1024, num_beams=4, early_stopping=True)
-    summary = summary_tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+def article_summary_AI(article_content):
+    prompt = f"""
+        원본 문장:{article_content} \n
+        원본 문장의 맥락을 살펴보고, 빠르게 문장을 요약하여 재구성합니다.
+        제목은 그대로 두시고, 내용의 핵심을 추출하여 전체적으로 요약하면 됩니다.
+        결과는 하나의 문장으로 표현하면 됩니다.
+        말 끝을 번역문이 아니라 자연스러운 한글 문장이 되도록 가공합니다.
+        괄호 () 속 내용 보다는 문장 전체의 맥락을 더 중요하게 봅니다.
+        문장을 생성할 때, '다' 로 끝나게 합니다.
+        문장의 조금만 더 간략하게 요약합니다.
+    """
+    messages = [
+        {"role": "system",
+         "content": "You are an excellent sentence summarizer. You understand the context and concisely summarize key sentences as an assistant."},
+        {"role": "user", "content": prompt}
+    ]
+    summary_model.to(device)
+    input_ids = summary_tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, return_tensors="pt",).to(device)
+    output = summary_model.generate(input_ids, eos_token_id=summary_tokenizer.eos_token_id, max_new_tokens=512, do_sample=False)
+    generated_text = summary_tokenizer.decode(output[0], skip_special_tokens=True)
+    generated_text_only = generated_text[len(summary_tokenizer.decode(input_ids[0], skip_special_tokens=True)):]
+    summary = generated_text_only.strip()
+    summary = re.sub(r"\*\*요약 문장:\*\*:\s*", "", summary)
+    summary = re.sub(r"\*\*요약 문장:\*\*:", "", summary)
+    summary = re.sub(r"\*\*요약 문장:\*\*", "", summary)
+    summary = re.sub("\n", "", summary)
     return summary
 ################################################################################################
 # 파이프 라인
@@ -423,8 +407,8 @@ def article_summary_AI_ver2(article):
 def pipline(contract_path):
     indentification_results = []
     summary_results = []
-    print('Extracting text from the Hangul file...')
-    txt = hwp5txt_to_string(contract_path)
+    print('Extracting text from the PDF file...')
+    txt = extract_text_from_pdf(contract_path)
     print('Splitting text into article sections...')
     txt = replace_date_with_placeholder(txt)
     articles = contract_to_articles_ver2(txt)
@@ -435,14 +419,14 @@ def pipline(contract_path):
         article_title = match.group(2)
         article_content = match.group(3)
         sentences = article_to_sentences(article_number,article_title, article_content)
-        # summary = article_summary_AI_ver2(article_detail)
-        # summary_results.append(
-        #                 {
-        #                 'article_number':article_number, # 조 번호
-        #                 'article_title': article_title, # 조 제목
-        #                 'summary': summary # 조 요약
-        #                 }
-        # )
+        summary = article_summary_AI(article_content)
+        summary_results.append(
+                        {
+                        'article_number':article_number, # 조 번호
+                        'article_title': article_title, # 조 제목
+                        'summary':  f"제{article_number.split('-')[0]}조의{article_number.split('-')[1]} {article_title} + ' ' +{summary}" if '-' in article_number else f"제{article_number}조 {article_title} + ' ' +{summary}"
+                        }
+        )
         for article_number, article_title, article_content, clause_number, clause_detail, subclause_number, subclause_detail in sentences:
             sentence = re.sub(r'\s+', ' ', f'[{article_title}] {article_content} {clause_number} {clause_detail} {subclause_number + "." if subclause_number else ""} {subclause_detail}').strip()
             unfair_result, unfair_percent = predict_unfair_clause(sentence)
