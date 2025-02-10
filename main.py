@@ -4,7 +4,7 @@ import os ,sys
 import shutil
 import uuid
 import modularization_v4 as mo
-import PDF_to_text as ptt
+
 import fitz
 import asyncio
 
