@@ -198,16 +198,16 @@ def initialize_models():
     unfair_tokenizer = get_tokenizer()
     # 조항 예측 모델 로드
     print('article model loading...')
-    article_model = load_trained_model_statice(Article_KoBERTMLPClassifier, f"./Model//article_prediction/KoBERT_mlp.pth")
+    article_model = load_trained_model_statice(Article_KoBERTMLPClassifier, f"./Model/article_prediction/KoBERT_mlp.pth")
     article_tokenizer = BertTokenizer.from_pretrained("monologg/kobert")
     # 독소 조항 판별 모델 로드
     print('toxic model loading...')
     toxic_model = load_trained_model_statice(Toxic_KoELECTRAMLPClassifier, f"./Model/toxic_identification/KoELECTRA_mlp.pth")
     toxic_tokenizer =ElectraTokenizer.from_pretrained("monologg/koelectra-base-discriminator")
     # 법률 데이터 로드
-    with open("./Data_Analysis/law/law_embeddings.pkl", "rb") as f:
+    with open("./Data/law_embeddings.pkl", "rb") as f:
         data = pickle.load(f)
-    with open("./Data_Analysis/law/law_data_ver2.json", "r", encoding="utf-8") as f:
+    with open("./Data/law_data_ver2.json", "r", encoding="utf-8") as f:
         law_data = json.load(f)
     law_embeddings = np.array(data["law_embeddings"])
     print("All models and data have been successfully loaded")
@@ -332,40 +332,52 @@ def find_most_similar_law_within_article(sentence, predicted_article, law_data):
 # 설명 AI
 ################################################################################################
 def explanation_AI(sentence, unfair_label, toxic_label, law=None):
-    #with open('./Key/openAI_key.txt', 'r') as file:
-    #    openai.api_key = file.readline().strip()
-    os.environ['OPENAI_API_KEY'] = openai.api_key 
-    client = openai.OpenAI()
+    #os.environ['OPENAI_API_KEY'] = openai.api_key 
+    api_key = ""
+    client = openai.OpenAI(api_key=api_key)
+
     if unfair_label == 0 and toxic_label == 0:
         return None
 
     if unfair_label == 1:
         prompt = f"""
-            아래 계약 조항이 특정 법률을 위반하는지 분석하고, 해당 법 조항(제n조 제m항 제z호)을 위반했다는 사실을 명확하게 설명하세요.
+            아래 계약 조항이 **대규모유통업법**을 위반하는지 분석하고, 해당 법 조항(제n조 제m항 제z호)에 따른 위반 여부를 명확하게 설명하세요.
+            
+            - 계약 조항: "{sentence}"
+            - 관련 법 조항: {law if law else "관련 법 조항 없음"}
 
-            계약 조항: "{sentence}"
-            관련 법 조항: {law if law else "관련 법 조항 없음"}
+            **설명 형식:**  
+            - 위반 여부를 명확히 판단하고, 관련 법 조항(제n조 제m항 제z호)을 정확하게 기재하세요.  
+            - 제공된 법 조항이 적절하지 않다면, GPT가 판단하여 대규모유통업법의 적절한 조항을 직접 사용하세요.  
+            - 위반 사유를 계약 당사자의 불이익과 법적 근거를 들어 논리적으로 설명하세요.  
+            - 반드시 문장의 끝을 "~한 이유로 위법 조항입니다."로 마무리하세요.
+            - "독소조항"이라는 표현을 사용하지 마세요.
 
-            설명을 다음 형식으로 작성하세요:
-            "어떤 법의 n조 m항 z호를 위반했습니다. 이유~~~"
-
-            ⚠️ 제공된 법 조항이 실제로 위반된 조항이 아닐 경우, GPT가 판단한 적절한 법 조항을 직접 사용하여 설명하세요.
+            **예시:**  
+            "해당 조항은 대규모유통업법 제n조 제m항 제z호를 위반하였습니다. 이유는 ~~~ 때문입니다. "
         """
     elif toxic_label == 1:
         prompt = f"""
-            아래 계약 조항이 독소 조항인지 분석하고, 독소 조항이라면 그 이유를 설명하세요.
+            아래 계약 조항이 독소 조항인지 분석하고, 을(계약 상대방)에게 불리한 조항이라면 그 이유를 설명하세요.
 
-            계약 조항: "{sentence}"
+            - 계약 조항: "{sentence}"
 
-            설명을 다음 형식으로 작성하세요:
-            "무엇무엇 때문에 독소입니다."
+            **설명 형식:**  
+            - 법 위반 여부가 아닌 을에게 불리한 점을 중심으로 설명하세요.  
+            - 을이 불공정한 부담을 지거나 계약상 권리가 제한되는 부분을 강조하세요.  
+
+            **예시:**  
+            "이 조항은 ~~한 이유로 을에게 불리한 독소 조항입니다."
         """
 
     response = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-4-turbo",
         messages=[
             {"role": "system",
-             "content": "당신은 계약서 조항이 특정 법률을 위반하는지 분석하는 법률 전문가입니다. \n불공정 조항의 경우, 어떤 법 조항을 위반했는지 조항(제n조 제m항 제z호) 형식으로 정확히 명시한 후 설명하세요. \n제공된 법 조항이 실제로 위반된 조항이 아닐 경우, GPT가 판단한 적절한 법 조항을 사용하세요. \n독소 조항은 법률 위반이 아니라 계약 당사자에게 미치는 위험성을 중심으로 설명하세요.\n 반드시 200 token 이하로 작성해주세요."},
+             "content": "당신은 계약 조항의 법률 위반 여부와 독소 조항 여부를 분석하는 전문가입니다. "
+                        "불공정 조항의 경우, 관련 법 조항을 명확히 기재한 후, 위반 사유를 논리적으로 설명하세요. "
+                        "독소 조항의 경우, 을(계약 상대방)이 불리한 점을 중심으로 설명하세요. "
+                        "반드시 200 tokens 이하로 작성하세요."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.7,
