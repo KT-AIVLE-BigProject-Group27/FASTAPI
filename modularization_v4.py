@@ -29,7 +29,7 @@ def replace_date_with_placeholder(content):
 ################################################################################################
 # 전체 계약서 텍스트를 받아, 조를 분리하는 함수 ver2
 ################################################################################################
-def contract_to_articles_ver2(txt):
+def contract_to_articles(txt):
     pattern, key_pattern = r'(제\d+조(?:의\d+)? \[.+?\])', r'제(\d+)조(?:의(\d+))? \[.+?\]'
     matches = list(re.finditer(pattern, txt))
     contract_sections = {}
@@ -126,8 +126,9 @@ def load_trained_model_statice(model_class, model_file):
 ################################################################################################
 def initialize_models():
     global clause_mapping, unfair_model, unfair_tokenizer, article_model, article_tokenizer, toxic_model, toxic_tokenizer,law_tokenizer,law_model, law_data, law_embeddings, device, summary_model, summary_tokenizer
-    
+
     clause_mapping = {"①": '1',"②": '2',"③": '3',"④": '4',"⑤": '5',"⑥": '6',"⑦": '7',"⑧": '8',"⑨": '9',"⑩": '10'}
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print('law model loading...')
     law_tokenizer = BertTokenizer.from_pretrained("klue/bert-base")
@@ -135,9 +136,9 @@ def initialize_models():
     print('summary model loading...')
     summary_model = AutoModelForCausalLM.from_pretrained('./Model/article_summary',trust_remote_code=True)
     summary_tokenizer = AutoTokenizer.from_pretrained('./Model/article_summary',trust_remote_code=True)
-    class KoBERTMLPClassifier(nn.Module):
+    class Unfair_KoBERTMLPClassifier(nn.Module):
         def __init__(self):
-            super(KoBERTMLPClassifier, self).__init__()
+            super(Unfair_KoBERTMLPClassifier, self).__init__()
             self.bert = BertModel.from_pretrained("monologg/kobert")
             self.fc1 = nn.Linear(self.bert.config.hidden_size, 256)
             self.relu = nn.ReLU()
@@ -154,9 +155,9 @@ def initialize_models():
             x = self.fc2(x)
             return self.sigmoid(x)
 
-    class KoELECTRAMLPClassifier(nn.Module):
+    class Toxic_KoELECTRAMLPClassifier(nn.Module):
         def __init__(self):
-            super(KoELECTRAMLPClassifier, self).__init__()
+            super(Toxic_KoELECTRAMLPClassifier, self).__init__()
             self.electra = ElectraModel.from_pretrained("monologg/koelectra-base-discriminator")
             self.fc1 = nn.Linear(self.electra.config.hidden_size, 256)
             self.relu = nn.ReLU()
@@ -173,40 +174,40 @@ def initialize_models():
             x = self.fc2(x)
             return self.sigmoid(x)
 
-    class BertArticleClassifier(nn.Module):
-        def __init__(self, bert_model_name="klue/bert-base", hidden_size=256, num_classes=10):
-            super(BertArticleClassifier, self).__init__()
-            self.bert = BertModel.from_pretrained(bert_model_name)
-            self.fc1 = nn.Linear(self.bert.config.hidden_size, hidden_size)
+    class Article_KoBERTMLPClassifier(nn.Module):
+        def __init__(self):
+            super(Article_KoBERTMLPClassifier, self).__init__()
+            self.bert = BertModel.from_pretrained("monologg/kobert")
+            self.fc1 = nn.Linear(self.bert.config.hidden_size, 256)
             self.relu = nn.ReLU()
             self.dropout = nn.Dropout(0.3)
-            self.fc2 = nn.Linear(hidden_size, num_classes)  # 조항 개수만큼 출력
-            self.softmax = nn.Softmax(dim=1)
+            self.fc2 = nn.Linear(256, 8)
 
         def forward(self, input_ids, attention_mask):
             outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-            cls_output = outputs.last_hidden_state[:, 0, :]  # [CLS] 벡터 사용
+            cls_output = outputs.last_hidden_state[:, 0, :]
             x = self.fc1(cls_output)
             x = self.relu(x)
             x = self.dropout(x)
             x = self.fc2(x)
-            return self.softmax(x)  # 확률 분포 출력
+            return x
+
     # 불공정 조항 판별 모델 로드
     print('unfair model loading...')
-    unfair_model = load_trained_model_statice(KoBERTMLPClassifier, f"./Model/unfair_identification/KoBERT_mlp.pth")
+    unfair_model = load_trained_model_statice(Unfair_KoBERTMLPClassifier, f"./Model/unfair_identification/KoBERT_mlp.pth")
     unfair_tokenizer = get_tokenizer()
     # 조항 예측 모델 로드
     print('article model loading...')
-    article_model = load_trained_model_statice(BertArticleClassifier, f"./Model//article_prediction/klue_bert_mlp.pth")
-    article_tokenizer = BertTokenizer.from_pretrained("klue/bert-base")
+    article_model = load_trained_model_statice(Article_KoBERTMLPClassifier, f"./Model//article_prediction/KoBERT_mlp.pth")
+    article_tokenizer = BertTokenizer.from_pretrained("monologg/kobert")
     # 독소 조항 판별 모델 로드
     print('toxic model loading...')
-    toxic_model = load_trained_model_statice(KoELECTRAMLPClassifier, f"./Model/toxic_identification/KoELECTRA_mlp.pth")
+    toxic_model = load_trained_model_statice(Toxic_KoELECTRAMLPClassifier, f"./Model/toxic_identification/KoELECTRA_mlp.pth")
     toxic_tokenizer =ElectraTokenizer.from_pretrained("monologg/koelectra-base-discriminator")
     # 법률 데이터 로드
-    with open("./Data/law_embeddings.pkl", "rb") as f:
+    with open("./Data_Analysis/law/law_embeddings.pkl", "rb") as f:
         data = pickle.load(f)
-    with open("./Data/law_data_ver2.json", "r", encoding="utf-8") as f:
+    with open("./Data_Analysis/law/law_data_ver2.json", "r", encoding="utf-8") as f:
         law_data = json.load(f)
     law_embeddings = np.array(data["law_embeddings"])
     print("All models and data have been successfully loaded")
@@ -219,12 +220,12 @@ def predict_unfair_clause(sentence):
     with torch.no_grad():
         output = unfair_model(inputs["input_ids"], inputs["attention_mask"])
         unfair_prob = output.item()
-    return 1 if unfair_prob >= 0.4986 else 0, unfair_prob
+    return 1 if unfair_prob >= 0.311002 else 0, unfair_prob
 ################################################################################################
 # 조항 예측
 ################################################################################################
 def predict_article(sentence):
-    idx_to_article = {0: '11', 1: '13', 2: '14', 3: '15', 4: '16', 5: '17', 6: '19', 7: '22', 8: '6', 9: '9'}
+    idx_to_article = {0: '11', 1: '14', 2: '15', 3: '16', 4: '17', 5: '19', 6: '7', 7: '12'}
     article_model.eval()
     inputs = article_tokenizer(sentence, padding=True, truncation=True, max_length=256, return_tensors="pt").to(device)
     with torch.no_grad():
@@ -240,7 +241,7 @@ def predict_toxic_clause(sentence):
     with torch.no_grad():
         output = toxic_model(inputs["input_ids"], inputs["attention_mask"])
         toxic_prob = output.item()
-    return 1 if toxic_prob >= 0.4938 else 0, toxic_prob
+    return 1 if toxic_prob >= 0.586741 else 0, toxic_prob
 ################################################################################################
 # 코사인 유사도
 ################################################################################################
@@ -401,6 +402,8 @@ def article_summary_AI(article_content):
     summary = re.sub(r"\*\*요약 문장:\*\*:", "", summary)
     summary = re.sub(r"\*\*요약 문장:\*\*", "", summary)
     summary = re.sub("\n", "", summary)
+    summary = re.sub(r"\*\*요약:\*\*", "", summary)
+    summary = re.sub(r"\(.*?\)", "", summary)
     return summary
 ################################################################################################
 # 파이프 라인
@@ -418,7 +421,7 @@ async def pipline(contract_path,websocket_connections):
     yield {"step": "계약서를 조항별로 분리 중..."}
     print('Splitting text into article sections...')
     txt = replace_date_with_placeholder(txt)
-    articles = contract_to_articles_ver2(txt)
+    articles = contract_to_articles(txt)
 
 
     # 4️⃣ 계약서 요약중 
@@ -434,7 +437,7 @@ async def pipline(contract_path,websocket_connections):
                         {
                         'article_number':article_number, # 조 번호
                         'article_title': article_title, # 조 제목
-                        'summary':  f"제{article_number.split('-')[0]}조의{article_number.split('-')[1]} {article_title} {summary}" if '-' in article_number else f"제{article_number}조 {article_title} {summary}"
+                        'summary':  f"제{article_number.split('-')[0]}조의{article_number.split('-')[1]} [{article_title}] {summary}" if '-' in article_number else f"제{article_number}조 [{article_title}] {summary}"
                         }
         )
 
